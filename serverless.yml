@@ -1,0 +1,74 @@
+service: news-app
+
+frameworkVersion: '4'
+
+provider:
+  name: aws
+  runtime: python3.12 # AWS Lambda 지원 여부 확인 필수
+  region: ap-northeast-2
+  stage: dev
+
+  environment:
+    # SSM 파라미터 이름 뒤에 ', true'로 변경 (SecureString 복호화용)
+    GOOGLE_API_KEY: "${ssm:/news-app/dev/GOOGLE_API_KEY, true}" 
+    NAVER_CLIENT_ID: "${ssm:/news-app/dev/NAVER_CLIENT_ID, true}"
+    NAVER_CLIENT_SECRET: "${ssm:/news-app/dev/NAVER_CLIENT_SECRET, true}"
+
+  iam:
+    role:
+      statements:
+        - Effect: Allow
+          Action:
+            - ssm:GetParameter
+            - ssm:GetParameters
+          Resource:
+            - arn:aws:ssm:${self:provider.region}:*:parameter/news-app/dev/*
+
+functions:
+  app:
+    handler: wsgi_handler.handler
+    events:
+      - httpApi:
+          path: /{proxy+}
+          method: '*'
+    layers:
+      - { Ref: PythonLibsLambdaLayer }
+
+layers:
+  PythonLibs:
+    path: ./python
+    # 핵심 변경 부분: 'provider' 대신 'stage' 사용
+    name: ${self:service}-${self:provider.stage}-python-libs 
+    description: Heavy Python libraries for Python 3.12 
+    compatibleRuntimes:
+      - python3.12
+
+plugins:
+  - serverless-wsgi
+  - serverless-python-requirements
+
+custom:
+  wsgi:
+    app: app.app
+    packRequirements: false
+
+  pythonRequirements:
+    dockerizePip: non-linux
+    slim: true
+
+  httpApi:
+    cors:
+      allowedOrigins: ['*']
+      allowedHeaders:
+        - Content-Type
+        - Authorization
+        - X-Amz-Date
+        - X-Api-Key
+        - X-Amz-Security-Token
+      allowedMethods:
+        - GET
+        - POST
+        - PUT
+        - DELETE
+        - OPTIONS
+      allowCredentials: true
