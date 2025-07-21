@@ -4,15 +4,16 @@ frameworkVersion: '4'
 
 provider:
   name: aws
-  runtime: python3.12 # AWS Lambda 지원 여부 확인 필수
+  runtime: python3.12
   region: ap-northeast-2
   stage: dev
 
   environment:
-    # SSM 파라미터 이름 뒤에 ', true'로 변경 (SecureString 복호화용)
-    GOOGLE_API_KEY: "${ssm:/news-app/dev/GOOGLE_API_KEY, true}" 
-    NAVER_CLIENT_ID: "${ssm:/news-app/dev/NAVER_CLIENT_ID, true}"
-    NAVER_CLIENT_SECRET: "${ssm:/news-app/dev/NAVER_CLIENT_SECRET, true}"
+    GOOGLE_API_KEY: "${ssm:/news-app/${self:provider.stage}/GOOGLE_API_KEY, true}" 
+    NAVER_CLIENT_ID: "${ssm:/news-app/${self:provider.stage}/NAVER_CLIENT_ID, true}"
+    NAVER_CLIENT_SECRET: "${ssm:/news-app/${self:provider.stage}/NAVER_CLIENT_SECRET, true}"
+    NEWS_CACHE_TABLE_NAME: "news-app-cache-table-${self:provider.stage}"
+    AWS_REGION: ${self:provider.region}
 
   iam:
     role:
@@ -22,7 +23,15 @@ provider:
             - ssm:GetParameter
             - ssm:GetParameters
           Resource:
-            - arn:aws:ssm:${self:provider.region}:*:parameter/news-app/dev/*
+            - arn:aws:ssm:${self:provider.region}:*:parameter/news-app/${self:provider.stage}/*
+        - Effect: Allow
+          Action:
+            - dynamodb:GetItem
+            - dynamodb:PutItem
+            - dynamodb:UpdateItem
+            - dynamodb:DeleteItem
+          Resource:
+            - arn:aws:dynamodb:${self:provider.region}:*:table/${self:provider.environment.NEWS_CACHE_TABLE_NAME}
 
 functions:
   app:
@@ -33,11 +42,26 @@ functions:
           method: '*'
     layers:
       - { Ref: PythonLibsLambdaLayer }
+    timeout: 30
+
+  refreshNewsCache:
+    handler: app.refresh_news_cache_handler
+    events:
+      - schedule:
+          rate: rate(1 hour) # 매 1시간마다 실행 (UTC 기준)
+          # 만약 3시간마다 업데이트를 원하시면: rate: rate(3 hours) 로 변경
+    timeout: 60
+    layers:
+      - { Ref: PythonLibsLambdaLayer }
+    environment:
+      NEWS_CACHE_TABLE_NAME: ${self:provider.environment.NEWS_CACHE_TABLE_NAME}
+      NAVER_CLIENT_ID: ${self:provider.environment.NAVER_CLIENT_ID}
+      NAVER_CLIENT_SECRET: ${self:provider.environment.NAVER_CLIENT_SECRET}
+      AWS_REGION: ${self:provider.region}
 
 layers:
   PythonLibs:
     path: ./python
-    # 핵심 변경 부분: 'provider' 대신 'stage' 사용
     name: ${self:service}-${self:provider.stage}-python-libs 
     description: Heavy Python libraries for Python 3.12 
     compatibleRuntimes:
@@ -72,3 +96,20 @@ custom:
         - DELETE
         - OPTIONS
       allowCredentials: true
+
+resources:
+  Resources:
+    NewsCacheTable:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: ${self:provider.environment.NEWS_CACHE_TABLE_NAME}
+        AttributeDefinitions:
+          - AttributeName: id
+            AttributeType: S
+        KeySchema:
+          - AttributeName: id
+            KeyType: HASH
+        BillingMode: PAY_PER_REQUEST
+        TimeToLiveSpecification:
+          AttributeName: ttl
+          Enabled: true
