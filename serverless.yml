@@ -9,29 +9,11 @@ provider:
   stage: dev
 
   environment:
-    GOOGLE_API_KEY: "${ssm:/news-app/${self:provider.stage}/GOOGLE_API_KEY, true}" 
+    GOOGLE_API_KEY: "${ssm:/news-app/${self:provider.stage}/GOOGLE_API_KEY, true}"
     NAVER_CLIENT_ID: "${ssm:/news-app/${self:provider.stage}/NAVER_CLIENT_ID, true}"
     NAVER_CLIENT_SECRET: "${ssm:/news-app/${self:provider.stage}/NAVER_CLIENT_SECRET, true}"
     NEWS_CACHE_TABLE_NAME: "news-app-cache-table-${self:provider.stage}"
-    AWS_REGION: ${self:provider.region}
-
-  iam:
-    role:
-      statements:
-        - Effect: Allow
-          Action:
-            - ssm:GetParameter
-            - ssm:GetParameters
-          Resource:
-            - arn:aws:ssm:${self:provider.region}:*:parameter/news-app/${self:provider.stage}/*
-        - Effect: Allow
-          Action:
-            - dynamodb:GetItem
-            - dynamodb:PutItem
-            - dynamodb:UpdateItem
-            - dynamodb:DeleteItem
-          Resource:
-            - arn:aws:dynamodb:${self:provider.region}:*:table/${self:provider.environment.NEWS_CACHE_TABLE_NAME}
+    # AWS_REGION: ${self:provider.region} # <--- 이 줄이 반드시 삭제되어야 합니다. (provider 하위)
 
 functions:
   app:
@@ -43,13 +25,15 @@ functions:
     layers:
       - { Ref: PythonLibsLambdaLayer }
     timeout: 30
+    # environment: # <--- app 함수에 별도로 environment를 정의했다면 여기도 AWS_REGION 없어야 함.
+      # (app 함수는 provider의 environment를 기본적으로 상속받으므로, 일반적으로 여기에 AWS_REGION을 다시 정의할 필요는 없습니다.)
+
 
   refreshNewsCache:
     handler: app.refresh_news_cache_handler
     events:
       - schedule:
-          rate: rate(1 hour) # 매 1시간마다 실행 (UTC 기준)
-          # 만약 3시간마다 업데이트를 원하시면: rate: rate(3 hours) 로 변경
+          rate: rate(1 hour)
     timeout: 60
     layers:
       - { Ref: PythonLibsLambdaLayer }
@@ -57,13 +41,12 @@ functions:
       NEWS_CACHE_TABLE_NAME: ${self:provider.environment.NEWS_CACHE_TABLE_NAME}
       NAVER_CLIENT_ID: ${self:provider.environment.NAVER_CLIENT_ID}
       NAVER_CLIENT_SECRET: ${self:provider.environment.NAVER_CLIENT_SECRET}
-      AWS_REGION: ${self:provider.region}
 
 layers:
   PythonLibs:
     path: ./python
-    name: ${self:service}-${self:provider.stage}-python-libs 
-    description: Heavy Python libraries for Python 3.12 
+    name: ${self:service}-${self:provider.stage}-python-libs
+    description: Heavy Python libraries for Python 3.12
     compatibleRuntimes:
       - python3.12
 

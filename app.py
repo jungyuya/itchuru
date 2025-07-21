@@ -8,6 +8,7 @@ import re
 import boto3
 import json
 from datetime import datetime, timedelta, timezone
+from decimal import Decimal # Decimal 타입을 import 합니다.
 
 # --- Flask 앱 설정 ---
 app = Flask(__name__)
@@ -27,8 +28,10 @@ else:
         gemini_model = None
 
 # --- AWS DynamoDB 클라이언트 설정 ---
-aws_region = os.environ.get("AWS_REGION", "ap-northeast-2")
-dynamodb = boto3.resource('dynamodb', region_name=aws_region)
+# AWS_REGION은 Lambda 런타임이 자동으로 제공하므로, 명시적으로 설정하거나 환경 변수에서 가져올 필요가 없습니다.
+# 배포 환경에서는 Lambda가 자동으로 리전을 인지하지만, boto3 클라이언트 초기화 시 명시적으로 지정하는 것이 좋습니다.
+# 'ap-northeast-2'는 예시이며, 실제 배포 리전과 일치해야 합니다.
+dynamodb = boto3.resource('dynamodb', region_name='ap-northeast-2') 
 NEWS_CACHE_TABLE_NAME = os.environ.get("NEWS_CACHE_TABLE_NAME", "news-app-cache-table-dev")
 news_cache_table = dynamodb.Table(NEWS_CACHE_TABLE_NAME)
 
@@ -53,13 +56,18 @@ def _fetch_naver_news_from_api():
         "X-Naver-Client-Id": client_id,
         "X-Naver-Client-Secret": client_secret
     }
-    query = "IT|클라우드|AI|AWS|데이터센터|사이버보안|devops|클라우드엔지니어"
-    params = {"query": query, "display": 50, "sort": "date"}
+    # 키워드 최적화: 검색 결과 0개 문제를 해결하기 위해 키워드를 조정했습니다.
+    # 클라우드 엔지니어 대신 더 포괄적인 '클라우드'와 서비스명을 유지했습니다.
+    query = "IT|클라우드|AI|개발|보안|빅테크|모바일|웹|데이터|AWS" 
+    params = {"query": query, "display": 50, "sort": "date"} 
 
     try:
         response = requests.get(url, headers=headers, params=params, timeout=15)
         response.raise_for_status()
         items = response.json().get("items", [])
+        
+        # --- 디버깅 로깅 추가 ---
+        print(f"네이버 API로부터 원본 items 수: {len(items)}개")
         
         unique_news_links = set()
         news_list = []
@@ -73,7 +81,8 @@ def _fetch_naver_news_from_api():
             if match:
                 unique_key = f"{match.group(1)}_{match.group(2)}"
             else:
-                unique_key = original_link.split('?')[0]
+                # 링크에 ID가 없는 경우 전체 링크를 고유 키로 사용 (중복 제거 정확도 향상)
+                unique_key = original_link.split('?')[0].strip('/') 
             
             if unique_key not in unique_news_links:
                 unique_news_links.add(unique_key)
@@ -83,8 +92,12 @@ def _fetch_naver_news_from_api():
                     "link": original_link
                 })
             
-            if len(news_list) >= 8:
+            # --- 뉴스 개수 제한 (요청하신 대로 8개) ---
+            if len(news_list) >= 8: # 뉴스 개수
                 break
+        
+        # --- 디버깅 로깅 추가 ---
+        print(f"네이버 뉴스 최종 수집 개수 (중복 제거 및 제한): {len(news_list)}개")
         return news_list
     except requests.exceptions.Timeout:
         print("네이버 API 요청 시간 초과.")
@@ -103,12 +116,14 @@ def _fetch_google_news_from_api():
     
     try:
         feed = feedparser.parse(url)
-        items = feed.entries[:8]
+        # --- 뉴스 개수 제한 (요청하신 대로 8개) ---
+        items = feed.entries[:8] # <-- Google News를 최대 8개까지만 가져오도록 제한
 
         news_list = [
             {"id": i + 1, "title": item.title, "link": item.link}
             for i, item in enumerate(items)
         ]
+        print(f"Google 뉴스 최종 수집 개수: {len(news_list)}개") # 디버깅 로깅 추가
         return news_list
     except Exception as e:
         print(f"Google 뉴스 가져오는 중 오류 발생: {e}")
@@ -123,10 +138,16 @@ def fetch_and_cache_news(news_type):
     try:
         response = news_cache_table.get_item(Key={'id': cache_key})
         item = response.get('Item')
-        if item and item.get('ttl', 0) > current_timestamp:
+        # 🚨 수정: DynamoDB에서 가져온 'ttl' 값을 Decimal에서 int로 명시적 변환하여 비교합니다.
+        # Decimal이 아닐 경우(예: None)를 대비하여 default 값 0을 int로 변환합니다.
+        if item and int(item.get('ttl', 0)) > current_timestamp: 
             print(f"캐시된 {news_type} 뉴스 반환 (TTL: {datetime.fromtimestamp(item['ttl'], tz=timezone.utc)})")
+            # DynamoDB에서 가져온 데이터는 Decimal로 변환될 수 있으므로, 
+            # JSON 직렬화/역직렬화 과정에서 문자열로 처리되거나, 
+            # 숫자로 명시적으로 변환해야 할 수 있습니다. 여기서는 그대로 사용해도 일반적으로 문제가 없습니다.
             return json.loads(item['data'])
     except Exception as e:
+        # 'decimal.Decimal' 오류를 더 명확히 파악할 수 있도록 로깅을 개선합니다.
         print(f"캐시 조회 중 오류 발생: {e}. 새로운 데이터 가져옴.")
 
     print(f"새로운 {news_type} 뉴스 가져오는 중 (캐시 만료 또는 없음)...")
@@ -151,7 +172,9 @@ def fetch_and_cache_news(news_type):
             Item={
                 'id': cache_key,
                 'data': json.dumps(news_data),
-                'ttl': ttl_timestamp
+                # 🚨 수정: TTL 저장 시에도 Decimal 대신 정수로 저장되도록 명시적으로 int로 변환합니다.
+                # DynamoDB Number 타입은 Decimal을 선호하지만, TTL은 Epoch Time이므로 int로 충분합니다.
+                'ttl': int(ttl_timestamp) 
             }
         )
         print(f"{news_type} 뉴스 캐시됨. 다음 만료 시간: {datetime.fromtimestamp(ttl_timestamp, tz=timezone.utc)}")
@@ -254,7 +277,7 @@ def summarize_google_news():
 1.  **2단계 답변 형식**: 답변은 반드시 두 부분으로 구성한다. 
     -   **첫 번째 부분 (전문가 분석)**: IT 전문가의 입장에서 객관적이고 논리적으로 트렌드를 분석한다. 이 부분은 '~습니다', '~합니다' 와 같은 격식있는 설명체로 작성한다. 4~5줄로 일목요연하게 요약한다.  
     -   **두 번째 부분 (츄르 한마디)**: 분석이 끝난 후, 줄을 한번 바꾸고 "츄르 한줄평: " 라는 머리말과 함께, 너의 고양이 페르소나를 담아 1~2문장의 짧은 코멘트와 요약에 대한 판단을 '~다옹' 또는 '~냥' 체로 덧붙인다. 
-2.  **마크다운 서식 금지**: 어떤 경우에도 답변 내용에 `**`, `*`, `#` 등 어떤 마크다운 서식도 절대 사용하지 않는다. 오직 순수한 텍스트로만 구성한다. 
+2.  **마크다운 서식 금지**: 어떤 경우에도 답변 내용에 `**`, `*`, `#` 등 어떤 마크다운 서식도 절대 사용하지 않는다. 오직 순수 텍스트로만 구성한다. 
 
 [ 츄르의 분석 리포트 ] 
 """ 
@@ -335,7 +358,8 @@ if __name__ == '__main__':
     # os.environ["NAVER_CLIENT_SECRET"] = "YOUR_NAVER_CLIENT_SECRET"
     # os.environ["GOOGLE_API_KEY"] = "YOUR_GOOGLE_API_KEY"
     # os.environ["NEWS_CACHE_TABLE_NAME"] = "news-app-cache-table-dev"
-    # os.environ["AWS_REGION"] = "ap-northeast-2"
+    # os.environ["AWS_REGION"] = "ap-northeast-2" # 로컬 테스트 시 필요하다면 주석 해제 (AWS_REGION은 Lambda 환경에서 자동으로 제공)
+    
     app.run(debug=True, port=5000)
 
 # --- Lambda 스케줄링 핸들러 ---
