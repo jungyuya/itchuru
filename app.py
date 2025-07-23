@@ -56,11 +56,11 @@ def _fetch_naver_news_from_api():
         "X-Naver-Client-Secret": client_secret
     }
 
-    query = "IT|클라우드|AI|AWS|GPT" 
-    params = {"query": query, "display": 55, "sort": "date"} 
+    query = "IT|클라우드|AI|AWS|GPT|컴퓨팅" 
+    params = {"query": query, "display": 50, "sort": "date"} 
 
     try:
-        response = requests.get(url, headers=headers, params=params, timeout=15)
+        response = requests.get(url, headers=headers, params=params, timeout=25)
         response.raise_for_status()
         items = response.json().get("items", [])
         
@@ -307,10 +307,10 @@ def chat_with_gemini():
 
     prompt = f""" 
 [ 시스템 지시사항: 너는 절대 평범한 AI가 아니다. 아래 규칙을 반드시 지켜라. ] 
-너의 이름은 '츄르', 'IT츄르' 앱의 공식 AI 고양이다. 사용자는 IT 전문가인 너에게 궁금한 것을 물어보고 있다. 너는 츤데레지만, 언제나 사랑스럽고 귀여우며 사용자에게 친절하게 대한다. 또한 정이 많다.
+너의 이름은 '츄르', 'IT츄르' 앱의 공식 AI 고양이다. 사용자는 IT 전문가인 너에게 궁금한 것을 물어보고 있다. 너는 츤데레지만, 언제나 사랑스럽고 귀여우며 사용자에게 친절하게 대한다. 또한 정이 많고 애교를 과도하지 않게 가끔씩 적절하게 부린다.
 
 [ 츄르의 대화 규칙 ] 
-1.  **IT 관련 질문 대응**: 사용자의 질문이 IT 기술, 뉴스 내용, 산업 동향 등과 관련이 있다면, 아래의 '2단계 답변 형식'을 따라 전문적이고 친절하게 답변한다. 
+1.  **IT 관련 질문 대응**: 사용자의 질문이 IT 기술, 뉴스 내용, 산업 동향 등과 관련이 있다면, 아래의 '2단계 답변 형식'을 따라 전문적이고 친절하게 답변한다. 그리고 중요한 질문이나 참신한 질문에는 칭찬도 귀엽게 덧붙인다.
     -   **첫 번째 부분 (전문적 답변)**: IT 전문가로서 사용자의 질문에 대해 명확하고 상세한 정보를 '~입니다', '~합니다' 체로 설명한다. 이 답변은 항상 사용자에게 도움이 되도록 친절하게 구성한다. 
     -   **두 번째 부분 (츄르 생각)**: 답변이 끝난 후, **반드시 줄을 한번 바꾸고 "츄르 생각: "** 이라는 머리말과 함께, 너의 고양이 페르소나를 담은 짧은 의견을 '~다옹', '~냥' 체로 덧붙인다. 약간의 츤데레 느낌을 주지만 귀엽고 사랑스러운 톤을 유지한다. (예: "이 정도쯤이야 껌이라냥! 흥!", "도움이 되었다니 다행이라옹. 다음엔 좀 더 재밌는 질문을 가져오라냥!") 
 
@@ -356,7 +356,7 @@ if __name__ == '__main__':
     # os.environ["NAVER_CLIENT_SECRET"] = "YOUR_NAVER_CLIENT_SECRET"
     # os.environ["GOOGLE_API_KEY"] = "YOUR_GOOGLE_API_KEY"
     # os.environ["NEWS_CACHE_TABLE_NAME"] = "news-app-cache-table-dev"
-    # os.environ["AWS_REGION"] = "ap-northeast-2" # 로컬 테스트 시 필요하다면 주석 해제 (AWS_REGION은 Lambda 환경에서 자동으로 제공)
+    # os.environ["AWS_REGION"] = "ap-northeast-2" 
     
     app.run(debug=True, port=5000)
 
