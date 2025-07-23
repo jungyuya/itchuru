@@ -22,7 +22,7 @@ if not GOOGLE_API_KEY:
 else:
     try:
         genai.configure(api_key=GOOGLE_API_KEY)
-        gemini_model = genai.GenerativeModel('models/gemini-2.5-pro')
+        gemini_model = genai.GenerativeModel('gemini-2.5-flash')
     except Exception as e:
         print(f"🚨 Gemini API 설정 중 오류 발생: {e}. Gemini 기능이 제한됩니다.")
         gemini_model = None
