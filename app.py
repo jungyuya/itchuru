@@ -56,8 +56,8 @@ def _fetch_naver_news_from_api():
         "X-Naver-Client-Secret": client_secret
     }
 
-    query = "IT|클라우드|AI|AWS|GPT|컴퓨팅" 
-    params = {"query": query, "display": 50, "sort": "date"} 
+    query = "IT|클라우드|AI|AWS|cloud" 
+    params = {"query": query, "display": 40, "sort": "date"} 
 
     try:
         response = requests.get(url, headers=headers, params=params, timeout=25)
